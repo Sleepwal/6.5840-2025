@@ -71,20 +71,10 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 	}
 	reply := rpc.PutReply{}
 
-	maxRetries := 5
-	for i := range maxRetries {
-		ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
+	ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
 
-		if ok {
-			if reply.Err == rpc.ErrVersion {
-				if i == 0 {
-					return rpc.ErrVersion
-				} else {
-					return rpc.ErrMaybe
-				}
-			}
-			break
-		}
+	if !ok {
+		return rpc.ErrMaybe
 	}
 
 	return reply.Err
