@@ -59,13 +59,21 @@ including the Put and Get handlers that implement the server side of RPC request
 
 ### Task
 
-no dropped messages
+Task1: no dropped messages.
 - Clerk Put/Get methods in `client.go`
 - Put and Get RPC handlers in `server.go`.
 
 ```shell
 go test -v -run Reliable
 ```
+
+Task2: implement a lock layered on client Clerk.Put and Clerk.Get calls.
+
+The lock supports two methods: Acquire and Release. 
+- The lock's specification is that only one client can successfully acquire the lock at a time; 
+- other clients must wait until the first client has released the lock using `Release()`. 
+- Your Acquire and Release code can talk to your key/value server by calling `lk.ck.Put()` and `lk.ck.Get()`.
+
 
 
 ## Lab3 Raft
