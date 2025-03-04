@@ -59,7 +59,7 @@ including the Put and Get handlers that implement the server side of RPC request
 
 ### Task
 
-Task1: no dropped messages.
+Task1: No dropped messages.
 - Clerk Put/Get methods in `client.go`
 - Put and Get RPC handlers in `server.go`.
 
@@ -74,6 +74,17 @@ The lock supports two methods: Acquire and Release.
 - other clients must wait until the first client has released the lock using `Release()`. 
 - Your Acquire and Release code can talk to your key/value server by calling `lk.ck.Put()` and `lk.ck.Get()`.
 
+
+Task3: Dropped RPC requests and replies(modify your `kvsrv1/client.go`)
+- A return value of true from the client's `ck.clnt.Call()` indicates that the client received an RPC reply from the server; 
+- a return value of false indicates that it did not receive a reply
+- Your Clerk should keep re-sending an RPC until it receives a reply.
+- if a Clerk receives rpc.ErrVersion for a retransmitted Put RPC, Clerk.Put must return `rpc.ErrMaybe` to the application.
+- Your solution shouldn't require any changes to the server.
+
+```shell
+ go test -v
+```
 
 
 ## Lab3 Raft
