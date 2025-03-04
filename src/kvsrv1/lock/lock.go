@@ -39,7 +39,7 @@ func MakeLock(ck kvtest.IKVClerk, l string) *Lock {
 // Acquire only one client can successfully acquire the lock at a time;
 func (lk *Lock) Acquire() {
 	// Your code here
-	i := 10
+	i := 100
 	for {
 		val, version, err := lk.ck.Get(lk.lockKey)
 		if val == lk.clientId { // 锁的持有者再次获取锁
@@ -64,7 +64,7 @@ func (lk *Lock) Acquire() {
 // Release other clients must wait until the first client has released the lock using Release.
 func (lk *Lock) Release() {
 	// Your code here
-	i := 10
+	i := 100
 	for {
 		value, version, err := lk.ck.Get(lk.lockKey)
 		if err == rpc.OK && value == lk.clientId { // 锁的持有者释放锁

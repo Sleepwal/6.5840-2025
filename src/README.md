@@ -86,5 +86,7 @@ Task3: Dropped RPC requests and replies(modify your `kvsrv1/client.go`)
  go test -v
 ```
 
+Task4: Implementing a lock using key/value clerk and unreliable network
+
 
 ## Lab3 Raft
