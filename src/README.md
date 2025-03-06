@@ -22,16 +22,17 @@ A client can create a new key by invoking **Put with version number 0** (and the
 Get(key) fetches the current value for the key and its associated version. 
 - If the key doesn't exist at the server, the server should return rpc.ErrNoKey.
 
-Maintaining a version number for each key will be useful for 
+Maintaining a **version number** for each key will be useful for 
 implementing locks using Put and ensuring at-most-once semantics for Put's 
-when the network is unreliable and the client retransmits.
+when the **network is unreliable** and the **client retransmits**.
 
 When you've finished this lab and passed all the tests, 
 you'll have a linearizable key/value service from the point of view of clients calling Clerk.Get and Clerk.Put. 
 
 That is, if client operations aren't concurrent, 
 each client Clerk.Get and Clerk.Put will observe the modifications to the state 
-implied by the preceding sequence of operations. For concurrent operations, 
+implied by the preceding sequence of operations. 
+For concurrent operations, 
 the return values and final state will be the same as if the operations had executed one at a time in some order. 
 
 Operations are concurrent if they overlap in time: for example, 
@@ -39,13 +40,6 @@ if client X calls Clerk.Put(), and client Y calls Clerk.Put(), and then client X
 
 An operation must observe the effects of all operations that have completed before the operation starts. 
 See the FAQ on linearizability for more background.
-
-Linearizability is convenient for applications 
-because it's the behavior you'd see from a single server that processes requests one at a time. 
-
-For example, if one client gets a successful response from the server for an update request, 
-subsequently launched reads from other clients are guaranteed to see the effects of that update. 
-Providing linearizability is relatively easy for a single server.
 
 ### Get Started
 
@@ -90,3 +84,65 @@ Task4: Implementing a lock using key/value clerk and unreliable network
 
 
 ## Lab3 Raft
+
+### Introduction
+
+This is the first in a series of labs in which you'll build a fault-tolerant key/value storage system. 
+
+In this lab you'll implement Raft, a replicated state machine protocol. 
+In the next lab you'll build a key/value service on top of Raft. 
+Then you will “shard” your service over multiple replicated state machines for higher performance.
+
+You should follow the design in the extended Raft paper, with particular attention to Figure 2. 
+You'll implement most of what's in the paper, 
+including saving persistent state and reading it after a node fails and then restarts. 
+You will not implement cluster membership changes (Section 6).
+
+###  Part 3A: Leader Election(moderate)
+Feature:
+- Raft leader election
+  - `RequestVote()` RPCs
+  - `AppendEntries()` RPCs with no log entries(heartbeats).
+- Handler
+  - `RequestVote()` RPC handler.
+  - `AppendEntries()` RPC handler.
+
+Goal:
+- for a single leader to be elected.
+- for the leader to remain the leader if there are no failures. 
+- for a new leader to take over 
+  - if the old leader fails 
+  - if packets to/from the old leader are lost. 
+
+Hint:
+- Follow the paper's Figure 2. 
+- At this point you care about:
+  - sending and receiving RequestVote RPCs.
+  - the **Rules** for Servers that relate to elections. 
+  - and the **State** related to leader election.
+- Add the Figure 2 state for leader election to the Raft struct in `raft.go`. 
+- Define a struct to hold information about each **log entry**.
+- Fill in the RequestVoteArgs and RequestVoteReply structs. 
+- Modify Make()
+  - create a background goroutine
+    - kick off leader election periodically by sending out RequestVote RPCs 
+    - when it hasn't heard from another peer for a while. 
+- Implement the RequestVote() RPC handler so that servers will vote for one another.
+- Implement heartbeats, 
+  - define an AppendEntries RPC struct, 
+  - teh leader send them out periodically. 
+  - Write an AppendEntries RPC handler method.
+  - The tester requires that the leader send heartbeat RPCs no more than ten times per second.
+- The paper's Section 5.2 mentions election timeouts in the range of 150 to 300 milliseconds.
+  - Such a range only makes sense if the leader sends heartbeats considerably more often than once per 150 milliseconds (e.g., once per 10 milliseconds).
+- You'll need to write code that takes actions periodically or after delays in time. 
+  - The easiest way to do this is to create a goroutine with a loop that calls time.Sleep();
+  - see the ticker() goroutine that Make() creates for this purpose. 
+  - Don't use Go's time.Timer or time.Ticker, which are difficult to use correctly.
+  - The tester calls your Raft's rf.Kill() when it is permanently shutting down an instance. 
+    - You can check whether Kill() has been called using rf.killed(). 
+    - You may want to do this in all loops, to avoid having dead Raft instances print confusing messages.
+
+```shell
+go test -run 3A.
+```
