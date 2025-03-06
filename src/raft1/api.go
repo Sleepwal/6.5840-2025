@@ -34,8 +34,8 @@ type RequestVoteReply struct {
 type AppendEntriesArgs struct {
 	Term         int
 	LeaderId     int
-	PrevLogIndex int
-	PrevLogTerm  int
+	PrevLogIndex int // index of log entry immediately preceding new entries
+	PrevLogTerm  int // term of prevLogIndex entry
 	Entries      []Entry
 	LeaderCommit int
 }

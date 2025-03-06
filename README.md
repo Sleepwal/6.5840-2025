@@ -146,3 +146,28 @@ Hint:
 ```shell
 go test -run 3A.
 ```
+
+#### Part 3B: Log Replication
+
+Implement the leader and follower code to append new log entries.
+
+Hint:
+- Raft log is **1-indexed**, but we suggest that you view it as 0-indexed, 
+  - starting out with an entry (at index=0) that has term 0. 
+  - That allows the very first AppendEntries RPC to contain 0 as PrevLogIndex, 
+  - be a valid index into the log.
+- You will need to implement the **election restriction** (section 5.4.1 in the paper).
+- Your code may have loops that repeatedly check for certain events. 
+- Don't have these loops execute continuously without pausing, 
+  - since that will slow your implementation enough that it fails tests. 
+  - Use Go's condition variables, or insert a time.Sleep(10 * time.Millisecond) in each loop iteration.
+
+Goal: Pass TestBasicAgree3B().
+- Start by implementing `Start()`, 
+- write the code to **send and receive new log entries** via AppendEntries RPCs, following Figure 2. 
+- Send each newly **committed entry on applyCh** on each peer.
+
+
+```shell
+ go test -run 3B
+```

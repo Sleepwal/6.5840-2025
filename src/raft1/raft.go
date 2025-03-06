@@ -47,6 +47,8 @@ type Raft struct {
 	state    StateType // 当前节点状态
 	timeout  time.Time // 超时时间
 	votedCnt int       // 得票数
+
+	applyCh chan raftapi.ApplyMsg // apply channel
 }
 
 // Make the service or tester wants to create a Raft server.
@@ -67,6 +69,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (3A, 3B, 3C).
+	rf.mu.Lock()
+
 	rf.transitionToFollower(0)
 	rf.resetTimeout()
 	rf.log = make([]Entry, 1) // first index is 1
@@ -74,11 +78,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 
+	rf.applyCh = applyCh
+
+	// initialize to leader last log index + 1
 	rf.nextIndex = make([]int, len(peers))
 	for i := 0; i < len(peers); i++ {
-		rf.nextIndex[i] = rf.getLastLogIndex()
+		rf.nextIndex[i] = rf.getLastLogIndex() + 1
 	}
+	// initialized to 0
 	rf.matchIndex = make([]int, len(peers))
+	rf.mu.Unlock()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -86,6 +95,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start ticker goroutine to start elections
 	go rf.ticker()
 	go rf.appendEntriesTicker()
+	go rf.applyTicker()
 
 	return rf
 }
@@ -97,6 +107,42 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	return rf.currentTerm, rf.state == Leader
+}
+
+// Start the service using Raft (e.g. a k/v server) wants to start
+// agreement on the next command to be appended to Raft's log.
+// if this server isn't the leader, returns false.
+// otherwise start the agreement and return immediately.
+// there is no guarantee that this command will ever be committed to the Raft log,
+// since the leader may fail or lose an election.
+// even if the Raft instance has been killed, this function should return gracefully.
+//
+// the first return value is the index that the command will appear at
+// if it's ever committed. the second return value is the current term.
+// the third return value is true if this server believes it is the leader.
+func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	index := -1
+	term := -1
+	isLeader := false
+
+	// Your code here (3B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	if rf.killed() {
+		return index, term, isLeader
+	}
+
+	if rf.state == Leader {
+		index = rf.getLastLogIndex() + 1
+		term = rf.currentTerm
+		isLeader = true
+
+		// append entry to local log
+		rf.log = append(rf.log, Entry{command, term})
+	}
+
+	return index, term, isLeader
 }
 
 // save Raft's persistent state to stable storage,
@@ -188,28 +234,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
-}
-
-// Start the service using Raft (e.g. a k/v server) wants to start
-// agreement on the next command to be appended to Raft's log. if this
-// server isn't the leader, returns false. otherwise start the
-// agreement and return immediately. there is no guarantee that this
-// command will ever be committed to the Raft log, since the leader
-// may fail or lose an election. even if the Raft instance has been killed,
-// this function should return gracefully.
-//
-// the first return value is the index that the command will appear at
-// if it's ever committed. the second return value is the current
-// term. the third return value is true if this server believes it is
-// the leader.
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
-	// Your code here (3B).
-
-	return index, term, isLeader
 }
 
 // Kill the tester doesn't halt goroutines created by Raft after each test,

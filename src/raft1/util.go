@@ -46,6 +46,12 @@ func (rf *Raft) transitionToLeader() {
 	rf.state = Leader
 	rf.votedFor = -1
 	rf.votedCnt = 0
+
+	for i := range rf.peers {
+		rf.nextIndex[i] = rf.getLastLogIndex() + 1
+	}
+	rf.matchIndex = make([]int, len(rf.peers))
+	rf.matchIndex[rf.me] = rf.getLastLogIndex()
 }
 
 func (rf *Raft) getLastLogIndex() int {
@@ -54,4 +60,13 @@ func (rf *Raft) getLastLogIndex() int {
 
 func (rf *Raft) getLastLogTerm() int {
 	return rf.log[len(rf.log)-1].Term
+}
+
+func (rf *Raft) getPrevLogIndexAndTerm(server int) (int, int) {
+	return rf.nextIndex[server] - 1, rf.log[rf.nextIndex[server]-1].Term
+}
+
+func (rf *Raft) isUpdateToDate(lastLogTerm, lastLogIndex int) bool {
+	return lastLogTerm > rf.getLastLogTerm() ||
+		(lastLogTerm == rf.getLastLogTerm() && lastLogIndex >= rf.getLastLogIndex())
 }
