@@ -183,6 +183,27 @@ Complete the functions `persist()` and `readPersist()` in `raft.go`
 
 Insert calls to persist() at the points where your implementation **changes persistent state**.
 
+You will probably need the optimization that **backs up nextIndex** by more than one entry at a time. 
+- Look at the extended Raft paper starting at the bottom of page 7 and top of page 8 (marked by a gray line). 
+- reduce the number of rejected AppendEntries PRCs.
+
+One possibility is to have a rejection message include:
+```text
+XTerm:  term in the conflicting entry (if any)
+XIndex: index of first entry with that term (if any)
+XLen:   log length
+```
+   
+Then the leader's logic can be something like:
+```text
+Case 1: leader doesn't have XTerm:
+    nextIndex = XIndex
+Case 2: leader has XTerm:
+    nextIndex = (index of leader's last entry for XTerm) + 1
+Case 3: follower's log is too short:
+    nextIndex = XLen
+```
+
 ```shell
 go test -run 3C
 ```
