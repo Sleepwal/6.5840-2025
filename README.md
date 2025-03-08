@@ -147,7 +147,7 @@ Hint:
 go test -run 3A.
 ```
 
-#### Part 3B: Log Replication
+### Part 3B: Log Replication(hard)
 
 Implement the leader and follower code to append new log entries.
 
@@ -170,4 +170,19 @@ Goal: Pass TestBasicAgree3B().
 
 ```shell
  go test -run 3B
+```
+
+### Part 3C: Persistence(hard)
+
+Raft should initialize its state from that Persister, 
+- should use it to **save its persistent state each time the state changes**. 
+- Use the Persister's `ReadRaftState()` and `Save()` methods.
+
+Complete the functions `persist()` and `readPersist()` in `raft.go`
+- adding code to save and restore persistent state.
+
+Insert calls to persist() at the points where your implementation **changes persistent state**.
+
+```shell
+go test -run 3C
 ```

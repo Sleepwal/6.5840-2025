@@ -11,7 +11,7 @@ import (
 
 const (
 	// HeartbeatInterval the leader sends heartbeats considerably more often than once per 150 milliseconds (e.g., once per 10 milliseconds).
-	HeartbeatInterval = 35
+	HeartbeatInterval = 20
 )
 
 //---------------------------------------RequestVotedTicker-------------------------------------------------
@@ -26,8 +26,9 @@ func (rf *Raft) ticker() {
 		if rf.state != Leader && rf.timeout.Before(time.Now()) {
 			rf.transitionToCandidate()
 
-			tester.Annotate("Server "+strconv.Itoa(rf.me), "start election",
-				fmt.Sprintf("Server%d Term:%d", rf.me, rf.currentTerm))
+			tester.Annotate("Server "+strconv.Itoa(rf.me),
+				fmt.Sprintf("Server%d Term:%d start election", rf.me, rf.currentTerm),
+				fmt.Sprintf("log:%v", rf.log))
 			//DPrintf("Server %d start election, term %d", rf.me, rf.currentTerm)
 
 			rf.mu.Unlock()
@@ -72,13 +73,14 @@ func (rf *Raft) issueRequestVote(server int) {
 	defer rf.mu.Unlock()
 
 	// 判断自身是否还是竞选者，且任期不冲突
-	if rf.state != Candidate || args.Term < rf.currentTerm {
+	if rf.state != Candidate || reply.Term < rf.currentTerm {
 		return
 	}
 
 	// if RPC request or response contains term T > currentTerm, set currentTerm = T, convert to follower (§5.1)
 	if reply.Term > rf.currentTerm {
 		rf.transitionToFollower(reply.Term)
+		rf.persist()
 		rf.resetTimeout()
 		return
 	}
@@ -91,8 +93,9 @@ func (rf *Raft) issueRequestVote(server int) {
 			rf.transitionToLeader()
 
 			//DPrintf("Server%d Term:%d win the election", rf.me, rf.currentTerm)
-			tester.Annotate("Server "+strconv.Itoa(rf.me), " win the election",
-				fmt.Sprintf("Server%d Term:%d", rf.me, rf.currentTerm))
+			tester.Annotate("Server "+strconv.Itoa(rf.me),
+				fmt.Sprintf("S%d T:%d win the election", rf.me, rf.currentTerm),
+				fmt.Sprintf("Server%d Term:%d Log:%v", rf.me, rf.currentTerm, rf.log))
 		}
 	}
 }
@@ -199,23 +202,41 @@ func (rf *Raft) doAppendEntries(server int) {
 		return
 	}
 
-	// 先更新commitIndex再退化
+	// reply false
+	// 退化的情况会 reply false
 	// if RPC request or response contains term T > currentTerm, set currentTerm = T, convert to follower (§5.1)
 	if reply.Term > rf.currentTerm {
 		rf.transitionToFollower(reply.Term)
+		rf.persist()
 		rf.resetTimeout()
 		return
 	}
 
 	// if AppendEntries fails because of log inconsistency
-	// 小于 的情况不用管，发送者会退化成Follower，就剩 等于 的情况
+	// 小于 的情况不用管，接受者会退化成Follower，就剩 等于 的情况
 	// 前面可能会退化成Follower，判断是否Leader
 	if reply.Term == rf.currentTerm && rf.state == Leader {
-		rf.nextIndex[server]-- // decrease nextIndex and retry (§5.3)
+		//rf.nextIndex[server]-- // decrease nextIndex and retry (§5.3)
 
-		//tester.Annotate("Server "+strconv.Itoa(rf.me),
-		//	fmt.Sprintf("Server%d Term:%d don't match matchIndex:%d", rf.me, rf.currentTerm, rf.nextIndex[server]),
-		//	fmt.Sprintf("log:%v", rf.log))
+		// no conflict
+		// Case 3: follower's log is too short, nextIndex = XLen
+		if reply.XTerm == -1 {
+			rf.nextIndex[server] = reply.XLen
+			return
+		}
+
+		// has conflict
+		i := rf.nextIndex[server] - 1
+		for i > 0 && rf.log[i].Term > reply.XTerm {
+			i--
+		}
+		// Case 1: leader doesn't have XTerm, nextIndex = XIndex
+		if rf.log[i].Term != reply.XTerm {
+			rf.nextIndex[server] = reply.XIndex
+		} else { // Case 2: leader has XTerm, nextIndex = (index of leader's last entry for XTerm) + 1
+			rf.nextIndex[server] = i + 1
+		}
+
 		return
 	}
 }

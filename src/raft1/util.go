@@ -40,12 +40,15 @@ func (rf *Raft) transitionToCandidate() {
 	rf.votedFor = rf.me  // vote for self
 	rf.votedCnt = 1
 	rf.resetTimeout()
+
+	rf.persist()
 }
 
 func (rf *Raft) transitionToLeader() {
 	rf.state = Leader
 	rf.votedFor = -1
 	rf.votedCnt = 0
+	rf.persist()
 
 	for i := range rf.peers {
 		rf.nextIndex[i] = rf.getLastLogIndex() + 1

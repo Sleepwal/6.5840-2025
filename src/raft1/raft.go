@@ -8,12 +8,12 @@ package raft
 
 import (
 	"6.5840/raftapi"
-
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	//	"6.5840/labgob"
+	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/tester1"
 )
@@ -80,17 +80,21 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.applyCh = applyCh
 
+	// initialize from state persisted before a crash
+	rf.readPersist(persister.ReadRaftState())
+
+	//tester.Annotate("Server "+strconv.Itoa(rf.me),
+	//	fmt.Sprintf("Server%d Term:%d read persist, log:%v", rf.me, rf.currentTerm, rf.log),
+	//	fmt.Sprintf("log:%v", rf.log))
+
+	//DPrintf("Server %d Term:%d read persist, log:%v", rf.me, rf.currentTerm, rf.log)
+
 	// initialize to leader last log index + 1
 	rf.nextIndex = make([]int, len(peers))
-	for i := 0; i < len(peers); i++ {
-		rf.nextIndex[i] = rf.getLastLogIndex() + 1
-	}
+
 	// initialized to 0
 	rf.matchIndex = make([]int, len(peers))
 	rf.mu.Unlock()
-
-	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
@@ -140,6 +144,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 		// append entry to local log
 		rf.log = append(rf.log, Entry{command, term})
+		rf.persist()
 	}
 
 	return index, term, isLeader
@@ -154,13 +159,19 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // (or nil if there's not yet a snapshot).
 func (rf *Raft) persist() {
 	// Your code here (3C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	raftState := w.Bytes()
+	rf.persister.Save(raftState, nil)
+
+	//DPrintf("Server%d persist: %v %v %v", rf.me, rf.currentTerm, rf.votedFor, rf.log)
+
+	//tester.Annotate("Server "+strconv.Itoa(rf.me),
+	//	fmt.Sprintf("Server%d Term:%d do persist, votedFor:%v", rf.me, rf.currentTerm, rf.votedFor),
+	//	fmt.Sprintf("log:%v", rf.log))
 }
 
 // restore previously persisted state.
@@ -181,6 +192,22 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var log []Entry
+	if d.Decode(&currentTerm) != nil ||
+		d.Decode(&votedFor) != nil ||
+		d.Decode(&log) != nil {
+		//tester.Annotate("Server "+strconv.Itoa(rf.me),
+		//	fmt.Sprintf("Server%d Term:%d persist error", rf.me, rf.currentTerm),
+		//	fmt.Sprintf("log:%v", rf.log))
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.log = log
+	}
 }
 
 // PersistBytes how many bytes in Raft's persisted log?
