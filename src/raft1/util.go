@@ -1,8 +1,11 @@
 package raft
 
 import (
+	tester "6.5840/tester1"
+	"fmt"
 	"log"
 	"math/rand"
+	"strconv"
 	"time"
 )
 
@@ -12,6 +15,21 @@ const Debug = false
 //const Debug = true
 
 func DPrintf(format string, a ...interface{}) {
+	if Debug {
+		log.Printf(format, a...)
+	}
+}
+
+// const DebugTest = false
+const DebugTest = true
+
+func (rf *Raft) DTestPrintf(format string, a ...interface{}) {
+	if DebugTest {
+		tester.Annotate("Server "+strconv.Itoa(rf.me),
+			fmt.Sprintf(format, a...),
+			fmt.Sprintf("lastIncludedIndex:%v lastIncludedTerm:%v commtIndex:%v lastApplied:%v log:%v, ", rf.lastIncludedIndex, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.log))
+	}
+
 	if Debug {
 		log.Printf(format, a...)
 	}
@@ -52,24 +70,47 @@ func (rf *Raft) transitionToLeader() {
 
 	for i := range rf.peers {
 		rf.nextIndex[i] = rf.getLastLogIndex() + 1
+		rf.matchIndex[i] = rf.lastIncludedIndex
 	}
-	rf.matchIndex = make([]int, len(rf.peers))
-	rf.matchIndex[rf.me] = rf.getLastLogIndex()
 }
 
 func (rf *Raft) getLastLogIndex() int {
-	return len(rf.log) - 1
+	return rf.getVirtualIndex(len(rf.log) - 1)
 }
 
 func (rf *Raft) getLastLogTerm() int {
+	if len(rf.log)-1 == 0 {
+		return rf.lastIncludedTerm
+	}
 	return rf.log[len(rf.log)-1].Term
 }
 
-func (rf *Raft) getPrevLogIndexAndTerm(server int) (int, int) {
-	return rf.nextIndex[server] - 1, rf.log[rf.nextIndex[server]-1].Term
+func (rf *Raft) getPrevLogIndex(server int) int {
+	index := rf.nextIndex[server] - 1
+	//if index == rf.lastIncludedIndex+1 {
+	//	index = rf.getLastLogIndex()
+	//}
+	return index
 }
 
 func (rf *Raft) isUpdateToDate(lastLogTerm, lastLogIndex int) bool {
 	return lastLogTerm > rf.getLastLogTerm() ||
 		(lastLogTerm == rf.getLastLogTerm() && lastLogIndex >= rf.getLastLogIndex())
+}
+
+func (rf *Raft) getRealIndex(virtualIndex int) int {
+	return virtualIndex - rf.lastIncludedIndex
+}
+
+func (rf *Raft) getRealTerm(virtualIndex int) int {
+	// 与快照一致
+	if virtualIndex <= rf.lastIncludedIndex {
+		return rf.lastIncludedTerm
+	}
+
+	return rf.log[rf.getRealIndex(virtualIndex)].Term
+}
+
+func (rf *Raft) getVirtualIndex(realIndex int) int {
+	return realIndex + rf.lastIncludedIndex
 }

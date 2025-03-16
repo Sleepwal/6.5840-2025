@@ -26,7 +26,7 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	// Your data here (3A, 3B, 3C).
+	// Your Data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
@@ -49,6 +49,12 @@ type Raft struct {
 	votedCnt int       // 得票数
 
 	applyCh chan raftapi.ApplyMsg // apply channel
+
+	// 3D
+	lastIncludedIndex int // the last entry in the log that snapshot replaces.
+	lastIncludedTerm  int // the term of this entry.
+	snapshot          []byte
+	condApply         *sync.Cond
 }
 
 // Make the service or tester wants to create a Raft server.
@@ -78,9 +84,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 
+	rf.lastIncludedIndex = 0
+	rf.lastIncludedTerm = 0
+	rf.condApply = sync.NewCond(&rf.mu)
+
 	rf.applyCh = applyCh
 
 	// initialize from state persisted before a crash
+	data := persister.ReadSnapshot()
+	if len(data) != 0 {
+		rf.snapshot = data
+	}
 	rf.readPersist(persister.ReadRaftState())
 
 	//tester.Annotate("Server "+strconv.Itoa(rf.me),
@@ -91,6 +105,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize to leader last log index + 1
 	rf.nextIndex = make([]int, len(peers))
+	for i := range rf.peers {
+		rf.nextIndex[i] = rf.getLastLogIndex() + 1
+	}
 
 	// initialized to 0
 	rf.matchIndex = make([]int, len(peers))
@@ -161,11 +178,15 @@ func (rf *Raft) persist() {
 	// Your code here (3C).
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
+	// 2C
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
+	// 2D
+	e.Encode(rf.lastIncludedIndex)
+	e.Encode(rf.lastIncludedTerm)
 	raftState := w.Bytes()
-	rf.persister.Save(raftState, nil)
+	rf.persister.Save(raftState, rf.snapshot)
 
 	//DPrintf("Server%d persist: %v %v %v", rf.me, rf.currentTerm, rf.votedFor, rf.log)
 
@@ -181,7 +202,7 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 	// Your code here (3C).
 	// Example:
-	// r := bytes.NewBuffer(data)
+	// r := bytes.NewBuffer(Data)
 	// d := labgob.NewDecoder(r)
 	// var xxx
 	// var yyy
@@ -194,12 +215,17 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
+
 	var currentTerm int
 	var votedFor int
 	var log []Entry
+	var lastIncludedIndex int
+	var lastIncludedTerm int
 	if d.Decode(&currentTerm) != nil ||
 		d.Decode(&votedFor) != nil ||
-		d.Decode(&log) != nil {
+		d.Decode(&log) != nil ||
+		d.Decode(&lastIncludedIndex) != nil ||
+		d.Decode(&lastIncludedTerm) != nil {
 		//tester.Annotate("Server "+strconv.Itoa(rf.me),
 		//	fmt.Sprintf("Server%d Term:%d persist error", rf.me, rf.currentTerm),
 		//	fmt.Sprintf("log:%v", rf.log))
@@ -207,6 +233,14 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.currentTerm = currentTerm
 		rf.votedFor = votedFor
 		rf.log = log
+
+		rf.lastIncludedIndex = lastIncludedIndex
+		rf.lastIncludedTerm = lastIncludedTerm
+
+		// 更新commitIndex和lastApplied，snapshot保存了lastIncludedIndex前的数据
+		// 相当于apply到了lastIncludedIndex
+		rf.commitIndex = lastIncludedIndex
+		rf.lastApplied = lastIncludedIndex
 	}
 }
 
@@ -223,7 +257,33 @@ func (rf *Raft) PersistBytes() int {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (3D).
+	if rf.killed() {
+		return
+	}
 
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// 旧的快照，不更新
+	if rf.commitIndex < index || index <= rf.lastIncludedIndex {
+		rf.DTestPrintf("--Server%d Term:%d ignore snapshot", rf.me, rf.currentTerm)
+		return
+	}
+
+	rf.snapshot = snapshot
+
+	rf.lastIncludedTerm = rf.log[rf.getRealIndex(index)].Term
+	// delete log before index，0位置是index，log从1开始
+	rf.log = rf.log[rf.getRealIndex(index):]
+
+	rf.lastIncludedIndex = index
+	if rf.lastApplied < index {
+		rf.lastApplied = index
+	}
+
+	rf.DTestPrintf("++Server%d Term:%d update snapshot index:%d, commitIndex:%d, lastIncludedIndex:%d", rf.me, rf.currentTerm, index, rf.commitIndex, rf.lastIncludedIndex)
+
+	rf.persist()
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -260,6 +320,11 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) bool {
+	ok := rf.peers[server].Call("Raft.InstallSnapshot", args, reply)
 	return ok
 }
 
